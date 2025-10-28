@@ -1,0 +1,92 @@
+name: Auto Activity
+
+on:
+  schedule:
+    # CRON usa UTC. 00:15 UTC ≈ 21:15 do dia anterior em São Paulo (UTC-3)
+    - cron: '15 0 * * *'
+  workflow_dispatch: {}      # permite rodar manualmente
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-activity
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      MIN_COMMITS: "5"       # mínimo por dia
+      MAX_COMMITS: "15"      # máximo por dia
+      DAY_START: "09:00"     # janela simulada de horários (sua hora local desejada)
+      DAY_END:   "22:30"
+      TZ_OFFSET: "-03:00"    # São Paulo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Configure git identity (bot)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Prepare heartbeat file
+        id: prep
+        run: |
+          TODAY="$(date -u +%Y-%m-%d)"     # data UTC só para o nome do arquivo
+          FILE=".heartbeat/${TODAY}.md"
+          mkdir -p .heartbeat
+          if [ ! -f "$FILE" ]; then
+            echo "# Heartbeat ${TODAY}" > "$FILE"
+          fi
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Generate random commits
+        run: |
+          set -e
+          MIN=${MIN_COMMITS}; MAX=${MAX_COMMITS}
+          START="${DAY_START}"; END="${DAY_END}"
+          OFFSET="${TZ_OFFSET}"
+          RANGE=$((MAX - MIN + 1))
+          N=$(( RANDOM % RANGE + MIN ))
+          FILE="${{ steps.prep.outputs.file }}"
+          echo "[INFO] Farei $N commits no arquivo $FILE"
+
+          start_sec=$(date -u -d "today ${START} ${OFFSET}" +%s)
+          end_sec=$(date -u -d "today ${END}   ${OFFSET}" +%s)
+          if [ "$end_sec" -le "$start_sec" ]; then
+            end_sec=$(( end_sec + 24*3600 ))
+          fi
+          span=$(( end_sec - start_sec ))
+
+          times=()
+          for i in $(seq 1 $N); do
+            r=$(( RANDOM % span ))
+            t=$(( start_sec + r ))
+            times+=("$t")
+          done
+          IFS=$'\n' sorted=($(sort -n <<<"${times[*]}")); unset IFS
+
+          idx=1
+          for ts in "${sorted[@]}"; do
+            stamp=$(date -u -d "@$ts" "+%Y-%m-%d %H:%M:%S")
+            echo "- update ${idx} @ ${stamp} (TZ ${OFFSET})" >> "$FILE"
+            export GIT_AUTHOR_DATE="${stamp} ${OFFSET}"
+            export GIT_COMMITTER_DATE="${stamp} ${OFFSET}"
+            git add "$FILE"
+            git commit -m "auto: heartbeat $(date -u +%Y-%m-%d) (${idx}/${N}) @ ${stamp} ${OFFSET}"
+            idx=$((idx+1))
+          done
+
+      - name: Push
+        run: |
+          if git log -1 --pretty=%B | grep -q "auto: heartbeat"; then
+            git push origin HEAD:main
+            echo "[INFO] Push efetuado."
+          else
+            echo "[INFO] Nada para enviar."
+          fi
