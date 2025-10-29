@@ -2,7 +2,7 @@ name: Auto Activity
 
 on:
   schedule:
-    # CRON usa UTC. 00:15 UTC ≈ 21:15 do dia anterior em São Paulo (UTC-3)
+    # CRON em UTC. 12:05 UTC = 09:05 BRT
     - cron: '5 12 * * *'
   workflow_dispatch: {}      # permite rodar manualmente
 
@@ -16,12 +16,13 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
+
     env:
       MIN_COMMITS: "5"       # mínimo por dia
       MAX_COMMITS: "15"      # máximo por dia
-      DAY_START: "09:00"     # janela simulada de horários (sua hora local desejada)
+      DAY_START: "09:00"     # janela simulada de horários (hora local desejada)
       DAY_END:   "22:30"
-      TZ_OFFSET: "-03:00"    # São Paulo
+      TZ_OFFSET: "-03:00"    # São Paulo (BRT)
 
     steps:
       - name: Checkout
@@ -37,15 +38,15 @@ jobs:
       - name: Prepare heartbeat file
         id: prep
         run: |
-          # Usa a data LOCAL (com offset) para nomear o arquivo do dia
-          TODAY="$(date -u -d "today ${TZ_OFFSET}" +%Y-%m-%d)"
+          # Calcula a data "local" do dia usando o início da janela + offset e então formata via epoch
+          START_SEC=$(date -u -d "today ${DAY_START} ${TZ_OFFSET}" +%s)
+          TODAY=$(date -u -d "@$START_SEC" +%Y-%m-%d)
+
           FILE=".heartbeat/${TODAY}.md"
           mkdir -p .heartbeat
-          if [ ! -f "$FILE" ]; then
-            echo "# Heartbeat ${TODAY}" > "$FILE"
-          fi
-          echo "file=$FILE" >> $GITHUB_OUTPUT
+          [ -f "$FILE" ] || echo "# Heartbeat ${TODAY}" > "$FILE"
 
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
       - name: Generate random commits
         run: |
