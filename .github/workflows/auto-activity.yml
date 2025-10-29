@@ -3,7 +3,7 @@ name: Auto Activity
 on:
   schedule:
     # CRON usa UTC. 00:15 UTC ≈ 21:15 do dia anterior em São Paulo (UTC-3)
-    - cron: '15 0 * * *'
+    - cron: '5 12 * * *'
   workflow_dispatch: {}      # permite rodar manualmente
 
 permissions:
@@ -37,13 +37,15 @@ jobs:
       - name: Prepare heartbeat file
         id: prep
         run: |
-          TODAY="$(date -u +%Y-%m-%d)"     # data UTC só para o nome do arquivo
+          # Usa a data LOCAL (com offset) para nomear o arquivo do dia
+          TODAY="$(date -u -d "today ${TZ_OFFSET}" +%Y-%m-%d)"
           FILE=".heartbeat/${TODAY}.md"
           mkdir -p .heartbeat
           if [ ! -f "$FILE" ]; then
             echo "# Heartbeat ${TODAY}" > "$FILE"
           fi
           echo "file=$FILE" >> $GITHUB_OUTPUT
+
 
       - name: Generate random commits
         run: |
